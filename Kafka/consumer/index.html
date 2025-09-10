@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Consumidor Kafka en Tiempo Real</title>
+  <script src="/socket.io/socket.io.js"></script>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>📊 Consumidor Kafka en Tiempo Real</h1>
+      <p>Mensajes del topic: <strong>test-topic</strong></p>
+    </header>
+    
+    <div class="stats">
+      <div class="stat-item">
+        <div class="stat-number" id="total-messages">0</div>
+        <div>Total Mensajes</div>
+      </div>
+      <div class="stat-item">
+        <div class="stat-number" id="messages-rate">0</div>
+        <div>Msg/segundo</div>
+      </div>
+      <div class="stat-item">
+        <div class="stat-number" id="partition-count">0</div>
+        <div>Particiones</div>
+      </div>
+    </div>
+    
+    <div class="controls">
+      <button class="btn-clear" onclick="clearMessages()">🗑️ Limpiar Mensajes</button>
+      <button class="btn-pause" onclick="togglePause()" id="pause-btn">⏸️ Pausar</button>
+    </div>
+    
+    <div class="status" id="connection-status">
+      <span class="connected">● Conectado</span>
+    </div>
+    
+    <div class="messages-container" id="messages-container">
+      <div id="mensajes">
+        <div class="empty-state" id="empty-state">
+          <p>⏳ Esperando mensajes de Kafka...</p>
+          <p>Los mensajes aparecerán aquí automáticamente</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const socket = io();
+    let messageCount = 0;
+    let startTime = Date.now();
+    let isPaused = false;
+    let uniquePartitions = new Set();
+    let messageBuffer = [];
+    const MAX_MESSAGES = 100;
+
+    // Elementos del DOM
+    const messagesElement = document.getElementById('mensajes');
+    const emptyStateElement = document.getElementById('empty-state');
+    const totalMessagesElement = document.getElementById('total-messages');
+    const messagesRateElement = document.getElementById('messages-rate');
+    const partitionCountElement = document.getElementById('partition-count');
+    const connectionStatusElement = document.getElementById('connection-status');
+    const pauseButton = document.getElementById('pause-btn');
+
+    // Estadísticas en tiempo real
+    setInterval(() => {
+      const elapsedSeconds = (Date.now() - startTime) / 1000;
+      const rate = elapsedSeconds > 0 ? (messageCount / elapsedSeconds).toFixed(2) : '0';
+      messagesRateElement.textContent = rate;
+    }, 1000);
+
+    socket.on("connect", () => {
+      console.log("Conectado al servidor");
+      connectionStatusElement.innerHTML = '<span class="connected">● Conectado</span>';
+    });
+
+    socket.on("disconnect", () => {
+      console.log("Desconectado del servidor");
+      connectionStatusElement.innerHTML = '<span class="disconnected">● Desconectado</span>';
+    });
+
+    socket.on("mensaje", (data) => {
+      if (isPaused) {
+        messageBuffer.push(data);
+        return;
+      }
+
+      processMessage(data);
+    });
+
+    function processMessage(data) {
+      messageCount++;
+      
+      // Actualizar estadísticas
+      totalMessagesElement.textContent = messageCount;
+      
+      // Manejar particiones únicas
+      if (data.partition !== undefined) {
+        uniquePartitions.add(data.partition);
+        partitionCountElement.textContent = uniquePartitions.size;
+      }
+
+      // Ocultar estado vacío si existe
+      if (emptyStateElement) {
+        emptyStateElement.style.display = 'none';
+      }
+
+      // Crear elemento de mensaje
+      const messageDiv = document.createElement('div');
+      messageDiv.className = 'message';
+      
+      const headerDiv = document.createElement('div');
+      headerDiv.className = 'message-header';
+      
+      headerDiv.innerHTML = `
+        <span class="timestamp">⏰ ${data.timestamp || 'Ahora'}</span>
+        <div>
+          ${data.partition !== undefined ? `<span class="partition">Partición: ${data.partition}</span>` : ''}
+          ${data.offset !== undefined ? `<span class="offset">Offset: ${data.offset}</span>` : ''}
+        </div>
+      `;
+      
+      const contentDiv = document.createElement('div');
+      contentDiv.className = 'message-content';
+      contentDiv.textContent = data.content || data;
+      
+      messageDiv.appendChild(headerDiv);
+      messageDiv.appendChild(contentDiv);
+      
+      // Insertar al inicio (mensajes más recientes primero)
+      if (messagesElement.firstChild && messagesElement.firstChild.className !== 'empty-state') {
+        messagesElement.insertBefore(messageDiv, messagesElement.firstChild);
+      } else {
+        messagesElement.appendChild(messageDiv);
+      }
+
+      // Limitar número de mensajes mostrados
+      const allMessages = messagesElement.getElementsByClassName('message');
+      if (allMessages.length > MAX_MESSAGES) {
+        messagesElement.removeChild(allMessages[allMessages.length - 1]);
+      }
+
+      // Auto-scroll si está al final
+      const container = document.getElementById('messages-container');
+      const isScrolledToBottom = container.scrollHeight - container.clientHeight <= container.scrollTop + 10;
+      if (isScrolledToBottom) {
+        container.scrollTop = container.scrollHeight;
+      }
+    }
+
+    function clearMessages() {
+      messagesElement.innerHTML = '';
+      messageCount = 0;
+      totalMessagesElement.textContent = '0';
+      messagesRateElement.textContent = '0';
+      startTime = Date.now();
+      messageBuffer = [];
+      uniquePartitions.clear();
+      partitionCountElement.textContent = '0';
+      
+      // Mostrar estado vacío
+      const emptyDiv = document.createElement('div');
+      emptyDiv.className = 'empty-state';
+      emptyDiv.id = 'empty-state';
+      emptyDiv.innerHTML = `
+        <p>⏳ Esperando mensajes de Kafka...</p>
+        <p>Los mensajes aparecerán aquí automáticamente</p>
+      `;
+      messagesElement.appendChild(emptyDiv);
+    }
+
+    function togglePause() {
+      isPaused = !isPaused;
+      pauseButton.textContent = isPaused ? '▶️ Reanudar' : '⏸️ Pausar';
+      
+      if (!isPaused && messageBuffer.length > 0) {
+        // Procesar mensajes en buffer
+        messageBuffer.forEach(processMessage);
+        messageBuffer = [];
+      }
+    }
+
+    // Efecto de conexión inicial
+    setTimeout(() => {
+      connectionStatusElement.style.opacity = '1';
+    }, 1000);
+  </script>
+</body>
+</html>
