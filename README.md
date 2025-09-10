@@ -4,8 +4,8 @@ Este proyecto implementa un productor en Python y un consumidor en NestJS que ut
 
 🛠 Tecnologías utilizadas
 
-Apache Kafka (broker de mensajería)
-Python (productor)
-NestJS + Express (API y consumer de Kafka)
-WebSockets (emisión de mensajes en tiempo real)
-Docker & Docker Compose (orquestación de servicios)
+- Apache Kafka (broker de mensajería)
+- Python (productor)
+- NestJS + Express (API y consumer de Kafka)
+- WebSockets (emisión de mensajes en tiempo real)
+- Docker & Docker Compose (orquestación de servicios)
