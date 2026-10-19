@@ -136,6 +136,10 @@ button {
   color: #dc3545;
 }
 
+.connecting {
+  color: #ffc107;
+}
+
 .timestamp {
   background: #e9ecef;
   padding: 4px 8px;

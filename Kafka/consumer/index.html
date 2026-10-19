@@ -35,7 +35,7 @@
     </div>
     
     <div class="status" id="connection-status">
-      <span class="connected">● Conectado</span>
+      <span class="connecting">● Conectando…</span>
     </div>
     
     <div class="messages-container" id="messages-container">
@@ -56,10 +56,10 @@
     let uniquePartitions = new Set();
     let messageBuffer = [];
     const MAX_MESSAGES = 100;
+    const seenMessages = new Set();
 
     // Elementos del DOM
     const messagesElement = document.getElementById('mensajes');
-    const emptyStateElement = document.getElementById('empty-state');
     const totalMessagesElement = document.getElementById('total-messages');
     const messagesRateElement = document.getElementById('messages-rate');
     const partitionCountElement = document.getElementById('partition-count');
@@ -73,14 +73,25 @@
       messagesRateElement.textContent = rate;
     }, 1000);
 
+    function setConnectionStatus(connected) {
+      connectionStatusElement.innerHTML = connected
+        ? '<span class="connected">● Conectado</span>'
+        : '<span class="disconnected">● Desconectado</span>';
+    }
+
     socket.on("connect", () => {
       console.log("Conectado al servidor");
-      connectionStatusElement.innerHTML = '<span class="connected">● Conectado</span>';
+      setConnectionStatus(true);
     });
 
     socket.on("disconnect", () => {
       console.log("Desconectado del servidor");
-      connectionStatusElement.innerHTML = '<span class="disconnected">● Desconectado</span>';
+      setConnectionStatus(false);
+    });
+
+    socket.on("connect_error", (error) => {
+      console.error("Error de conexión:", error.message);
+      setConnectionStatus(false);
     });
 
     socket.on("mensaje", (data) => {
@@ -92,7 +103,27 @@
       processMessage(data);
     });
 
+    // Mensajes ya consumidos que el servidor envía al conectarse
+    socket.on("backlog", (messages) => {
+      if (!Array.isArray(messages)) return;
+
+      messages.forEach((data) => {
+        if (isPaused) {
+          messageBuffer.push(data);
+        } else {
+          processMessage(data);
+        }
+      });
+    });
+
     function processMessage(data) {
+      // Evitar duplicados (por ejemplo, al reconectar y recibir el backlog otra vez)
+      if (data.partition !== undefined && data.offset !== undefined) {
+        const key = `${data.partition}:${data.offset}`;
+        if (seenMessages.has(key)) return;
+        seenMessages.add(key);
+      }
+
       messageCount++;
       
       // Actualizar estadísticas
@@ -104,9 +135,10 @@
         partitionCountElement.textContent = uniquePartitions.size;
       }
 
-      // Ocultar estado vacío si existe
-      if (emptyStateElement) {
-        emptyStateElement.style.display = 'none';
+      // Quitar estado vacío si existe
+      const emptyState = messagesElement.querySelector('.empty-state');
+      if (emptyState) {
+        emptyState.remove();
       }
 
       // Crear elemento de mensaje
@@ -132,23 +164,18 @@
       messageDiv.appendChild(contentDiv);
       
       // Insertar al inicio (mensajes más recientes primero)
-      if (messagesElement.firstChild && messagesElement.firstChild.className !== 'empty-state') {
-        messagesElement.insertBefore(messageDiv, messagesElement.firstChild);
-      } else {
-        messagesElement.appendChild(messageDiv);
-      }
+      messagesElement.prepend(messageDiv);
 
       // Limitar número de mensajes mostrados
-      const allMessages = messagesElement.getElementsByClassName('message');
+      const allMessages = messagesElement.querySelectorAll('.message');
       if (allMessages.length > MAX_MESSAGES) {
-        messagesElement.removeChild(allMessages[allMessages.length - 1]);
+        allMessages[allMessages.length - 1].remove();
       }
 
-      // Auto-scroll si está al final
+      // Mantener visible el mensaje más reciente si el usuario está arriba
       const container = document.getElementById('messages-container');
-      const isScrolledToBottom = container.scrollHeight - container.clientHeight <= container.scrollTop + 10;
-      if (isScrolledToBottom) {
-        container.scrollTop = container.scrollHeight;
+      if (container.scrollTop <= 10) {
+        container.scrollTop = 0;
       }
     }
 
@@ -160,6 +187,7 @@
       startTime = Date.now();
       messageBuffer = [];
       uniquePartitions.clear();
+      seenMessages.clear();
       partitionCountElement.textContent = '0';
       
       // Mostrar estado vacío

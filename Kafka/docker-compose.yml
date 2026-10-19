@@ -28,7 +28,8 @@ services:
   producer:
     build: ./producer
     depends_on:
-      - kafka
+      kafka:
+        condition: service_healthy
     restart: on-failure
 
   consumer:
@@ -36,5 +37,6 @@ services:
     ports:
       - "3000:3000"
     depends_on:
-      - kafka
+      kafka:
+        condition: service_healthy
     restart: unless-stopped
